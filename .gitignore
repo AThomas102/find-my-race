@@ -1,0 +1,29 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+
+# Node / frontend
+web/node_modules/
+web/dist/
+*.local
+
+# Data / local DB (keep demo_races.json tracked; ignore large DBs)
+data/*.db
+data/*.sqlite
+*.jsonl
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Env
+.env
+.env.*

@@ -1,0 +1,127 @@
+[
+  {
+    "id": "demo-southampton-half-2026",
+    "title": "Southampton Half Marathon",
+    "start": "2026-04-12T09:30:00",
+    "region": "Hampshire",
+    "country": "GB",
+    "location_label": "Southampton Common, Southampton",
+    "postal_prefix": "SO14",
+    "coordinates": { "lat": 50.9135, "lon": -1.4043 },
+    "course": {
+      "distance_m": 21097,
+      "surface": "road",
+      "terrain": "undulating",
+      "elevation_gain_m": 110,
+      "loop_or_point_to_point": "loop"
+    },
+    "field_summary": {
+      "median_5k_sec": 1560,
+      "p25_5k_sec": 1420,
+      "p75_5k_sec": 1720,
+      "sample_size": 1840,
+      "provenance": "past_results"
+    },
+    "sign_up_url": "https://example.com/southampton-half",
+    "metadata": { "notes": "Demo data for local development." }
+  },
+  {
+    "id": "demo-brighton-marathon-2026",
+    "title": "Brighton Marathon",
+    "start": "2026-04-06T08:45:00",
+    "region": "East Sussex",
+    "country": "GB",
+    "location_label": "Brighton seafront",
+    "postal_prefix": "BN1",
+    "coordinates": { "lat": 50.8197, "lon": -0.1363 },
+    "course": {
+      "distance_m": 42195,
+      "surface": "road",
+      "terrain": "flat",
+      "elevation_gain_m": 60,
+      "loop_or_point_to_point": "loop"
+    },
+    "field_summary": {
+      "median_5k_sec": 1680,
+      "p25_5k_sec": 1520,
+      "p75_5k_sec": 1860,
+      "sample_size": 9200,
+      "provenance": "past_results"
+    },
+    "sign_up_url": "https://example.com/brighton-marathon",
+    "metadata": {}
+  },
+  {
+    "id": "demo-loch-ness-marathon-2026",
+    "title": "Loch Ness Marathon",
+    "start": "2026-09-27T09:55:00",
+    "region": "Highlands",
+    "country": "GB",
+    "location_label": "Starts Fort Augustus → Inverness",
+    "coordinates": { "lat": 57.1456, "lon": -4.6785 },
+    "course": {
+      "distance_m": 42195,
+      "surface": "road",
+      "terrain": "hilly",
+      "elevation_gain_m": 420,
+      "loop_or_point_to_point": "point_to_point"
+    },
+    "field_summary": {
+      "median_5k_sec": 1780,
+      "p25_5k_sec": 1600,
+      "p75_5k_sec": 1980,
+      "sample_size": 2100,
+      "provenance": "past_results"
+    },
+    "sign_up_url": "https://example.com/loch-ness",
+    "metadata": {}
+  },
+  {
+    "id": "demo-london-10k-2026",
+    "title": "London Vitality 10K",
+    "start": "2026-05-25T09:00:00",
+    "region": "Greater London",
+    "country": "GB",
+    "location_label": "Westminster / St James's Park",
+    "coordinates": { "lat": 51.501, "lon": -0.132 },
+    "course": {
+      "distance_m": 10000,
+      "surface": "road",
+      "terrain": "flat",
+      "elevation_gain_m": 40,
+      "loop_or_point_to_point": "loop"
+    },
+    "field_summary": {
+      "median_5k_sec": 1410,
+      "p25_5k_sec": 1280,
+      "p75_5k_sec": 1560,
+      "sample_size": 12000,
+      "provenance": "past_results"
+    },
+    "metadata": {}
+  },
+  {
+    "id": "demo-peak-district-trail-2026",
+    "title": "Peak District Trail Half",
+    "start": "2026-07-11T08:00:00",
+    "region": "Derbyshire",
+    "country": "GB",
+    "location_label": "Bakewell area",
+    "coordinates": { "lat": 53.213, "lon": -1.675 },
+    "course": {
+      "distance_m": 21097,
+      "surface": "trail",
+      "terrain": "hilly",
+      "elevation_gain_m": 780,
+      "loop_or_point_to_point": "loop"
+    },
+    "field_summary": {
+      "median_5k_sec": 1950,
+      "p25_5k_sec": 1760,
+      "p75_5k_sec": 2160,
+      "sample_size": 420,
+      "provenance": "estimated"
+    },
+    "metadata": { "mud_rating": "variable" }
+  }
+]

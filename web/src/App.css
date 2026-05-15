@@ -1,0 +1,11 @@
+/* Additional app-level tweaks live alongside index.css */
+
+strong {
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+em {
+  font-style: italic;
+  color: #cbd5f5;
+}
