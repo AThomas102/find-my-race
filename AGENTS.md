@@ -12,7 +12,7 @@ This repository is designed so humans and **automation agents** can extend it sa
 | Layer | Path | Responsibility |
 |--------|------|----------------|
 | Domain + algorithms | `packages/fmr_core/` | Race/field models, equivalent-time / handicap math, pure search scoring (no I/O). **Safe for unit tests.** |
-| Ingestion | `scripts/` | Crawlers (`uk_running_events_crawl.py`), Po10 athlete fetch (`powerof10_athlete_scraper.py`), optional field-stat tooling. Respect robots.txt / site terms. |
+| Ingestion | `scripts/` | Crawlers (`uk_running_events_crawl.py`), modular merge CLI (`scripts/run_ingest.py` → `scripts/ingest/`), Po10 athlete fetch (`powerof10_athlete_scraper.py`), field-stat helpers. Respect robots.txt / site terms. |
 | HTTP API | `backend/app/` | FastAPI: validates requests, loads data, calls `fmr_core.search`. Agents add endpoints by **thin** wrappers over core logic. |
 | UI | `web/` | React (Vite + TypeScript). Calls `/api/*` only; no duplicate business rules in the browser except display formatting. |
 
@@ -30,7 +30,7 @@ Po10 unattended search often hits CAPTCHA; the scraper is aimed at **known athle
 
 ## File contracts
 
-- `data/demo_races.json`: Demo catalog for local dev. Schema matches `fmr_core.models.Race` (see `model_dump` / JSON shape in code). Agents may add races here for UI testing.
+- `data/demo_races.json`: Small **hand-curated or ingest-merged** catalog for local dev (real events / public URLs only; no synthetic generators). Schema matches `fmr_core.models.Race`. Larger merged catalogs live under `data/races/*.json` when you run `python scripts/run_ingest.py ingest-sample --source curated --config <seed.json> --out data/races/<name>.json --merge`.
 - Future: replace loader in `backend/app/services/races.py` with SQLite/Postgres while keeping the same **core** search inputs/outputs.
 
 ## How to extend without breaking scales
@@ -44,8 +44,7 @@ Po10 unattended search often hits CAPTCHA; the scraper is aimed at **known athle
 - Backend: `cd backend && pip install -r requirements.txt && pip install -e ../packages/fmr_core && uvicorn app.main:app --reload`
 - Frontend: `cd web && npm install && npm run dev`
 - Core tests: `cd packages/fmr_core && pip install -e ".[dev]" && pytest`
+- Curated ingest (local JSON → `Race` file): `python scripts/run_ingest.py ingest-sample --source curated --config data/ingest_seeds/curated_races.sample.json --out data/races/import_demo.json --merge`
+- Listing preview only: `python scripts/run_ingest.py list --source curated --config data/ingest_seeds/curated_races.sample.json`
 
-## Non-goals for agents (unless explicitly asked)
 
-- Bypassing third-party protections (CAPTCHA, paywalls).
-- Storing scraped personal data without a clear lawful basis documented by the human owner.

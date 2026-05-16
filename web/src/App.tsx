@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { SearchMap, type SearchMapMarker } from "./SearchMap";
 import "./App.css";
 
 type Coordinates = { lat: number; lon: number };
@@ -17,6 +19,8 @@ type SearchResponse = {
       start: string;
       region: string | null;
       location_label: string | null;
+      country?: string | null;
+      postal_prefix?: string | null;
       course: {
         distance_m: number | null;
         surface: string;
@@ -29,19 +33,20 @@ type SearchResponse = {
         provenance: string;
       } | null;
       sign_up_url: string | null;
+      results_url?: string | null;
+      coordinates?: { lat: number; lon: number } | null;
+      metadata?: Record<string, unknown>;
     };
   }>;
 };
 
+/** Hampshire-first map presets (Southampton, Winchester, Portsmouth, etc.). */
 const UK_PRESETS: { label: string; lat: number; lon: number }[] = [
-  { label: "London (centre)", lat: 51.5074, lon: -0.1278 },
-  { label: "Manchester", lat: 53.4808, lon: -2.2426 },
-  { label: "Birmingham", lat: 52.4862, lon: -1.8904 },
-  { label: "Edinburgh", lat: 55.9533, lon: -3.1883 },
-  { label: "Cardiff", lat: 51.4816, lon: -3.1791 },
-  { label: "Bristol", lat: 51.4545, lon: -2.5879 },
   { label: "Southampton", lat: 50.9097, lon: -1.4044 },
-  { label: "Brighton", lat: 50.8225, lon: -0.1372 },
+  { label: "Winchester", lat: 51.0632, lon: -1.308 },
+  { label: "Portsmouth", lat: 50.8198, lon: -1.0878 },
+  { label: "Basingstoke", lat: 51.2667, lon: -1.0876 },
+  { label: "Bournemouth (Dorset, neighbour)", lat: 50.7192, lon: -1.8808 },
 ];
 
 const DISTANCE_PRESETS: { label: string; metres: number }[] = [
@@ -68,29 +73,93 @@ function formatMinSec(sec: number | null | undefined): string {
   return `${m}:${r.toString().padStart(2, "0")}`;
 }
 
+function formatRaceDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDistanceLabel(metres: number | null | undefined): string | null {
+  if (!metres) return null;
+  if (metres >= 40000) return "Marathon";
+  if (metres >= 20000) return "Half marathon";
+  if (metres >= 9000 && metres <= 11000) return "10K";
+  if (metres >= 4500 && metres <= 5500) return "5K";
+  return `${(metres / 1000).toFixed(1)} km`;
+}
+
 function buildQuery(params: URLSearchParams) {
   return `/api/search?${params.toString()}`;
+}
+
+function formatApiError(status: number, text: string): string {
+  if (status === 422 && text.trim().startsWith("{")) {
+    try {
+      const body = JSON.parse(text) as {
+        detail?: Array<{ msg?: string } | string> | { msg?: string } | string;
+      };
+      const d = body.detail;
+      if (Array.isArray(d)) {
+        const parts = d
+          .map((x) => (typeof x === "object" && x && "msg" in x ? String((x as { msg: string }).msg) : ""))
+          .filter(Boolean);
+        if (parts.length) return parts.join(" ");
+      }
+      if (typeof d === "string") return d;
+    } catch {
+      /* fall through */
+    }
+  }
+  return text.trim() || `Request failed (${status})`;
 }
 
 export default function App() {
   const [q, setQ] = useState("");
   const [region, setRegion] = useState("");
   const [presetIdx, setPresetIdx] = useState(0);
-  const [radiusKm, setRadiusKm] = useState(120);
+  const [radiusKm, setRadiusKm] = useState(65);
   const [distanceIdx, setDistanceIdx] = useState(1);
   const [customDistanceKm, setCustomDistanceKm] = useState("");
-  const [raceTime, setRaceTime] = useState("48:30");
+  const [raceTime, setRaceTime] = useState("");
   const [terrain, setTerrain] = useState<"any" | "flat" | "undulating" | "hilly">("any");
   const [surface, setSurface] = useState<"any" | "road" | "trail" | "track" | "mixed">("any");
   const [fieldWeight, setFieldWeight] = useState(0.55);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<SearchResponse | null>(null);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [lastSearchGeo, setLastSearchGeo] = useState<{ center: Coordinates; radiusKm: number } | null>(null);
 
   const centre: Coordinates = useMemo(() => {
     const p = UK_PRESETS[presetIdx] ?? UK_PRESETS[0];
     return { lat: p.lat, lon: p.lon };
   }, [presetIdx]);
+
+  const mapMarkers: SearchMapMarker[] = useMemo(() => {
+    if (!data) return [];
+    const out: SearchMapMarker[] = [];
+    for (const row of data.results) {
+      const c = row.race.coordinates;
+      if (c == null) continue;
+      if (typeof c.lat !== "number" || typeof c.lon !== "number") continue;
+      if (!Number.isFinite(c.lat) || !Number.isFinite(c.lon)) continue;
+      out.push({
+        id: row.race.id,
+        lat: c.lat,
+        lon: c.lon,
+        score: row.composite_score,
+        title: row.race.title,
+      });
+    }
+    return out;
+  }, [data]);
 
   const myDistanceM = useMemo(() => {
     const custom = Number(customDistanceKm);
@@ -100,19 +169,28 @@ export default function App() {
     return DISTANCE_PRESETS[distanceIdx]?.metres ?? 10000;
   }, [customDistanceKm, distanceIdx]);
 
-  async function runSearch() {
+  const runSearch = useCallback(async () => {
+    const t = parseRaceTime(raceTime);
+    if (t != null && myDistanceM < 400) {
+      setData(null);
+      setLastSearchGeo(null);
+      setError("Use at least 400 m distance when supplying a handicap time.");
+      return;
+    }
+    const geoForRequest = { center: { lat: centre.lat, lon: centre.lon }, radiusKm };
     setLoading(true);
     setError(null);
     const params = new URLSearchParams();
     if (q.trim()) params.set("q", q.trim());
     if (region.trim()) params.set("region", region.trim());
-    params.set("center_lat", String(centre.lat));
-    params.set("center_lon", String(centre.lon));
-    params.set("radius_km", String(radiusKm));
-    params.set("max_results", "30");
-    params.set("my_distance_m", String(myDistanceM));
-    const t = parseRaceTime(raceTime);
-    if (t != null) params.set("my_time_sec", String(t));
+    params.set("center_lat", String(geoForRequest.center.lat));
+    params.set("center_lon", String(geoForRequest.center.lon));
+    params.set("radius_km", String(geoForRequest.radiusKm));
+    params.set("max_results", "72");
+    if (t != null) {
+      params.set("my_distance_m", String(myDistanceM));
+      params.set("my_time_sec", String(t));
+    }
     params.set("prefer_terrain", terrain);
     params.set("prefer_surface", surface);
     params.set("field_weight", String(fieldWeight));
@@ -121,42 +199,58 @@ export default function App() {
       const res = await fetch(buildQuery(params));
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(text || `Request failed (${res.status})`);
+        throw new Error(formatApiError(res.status, text));
       }
       const json = (await res.json()) as SearchResponse;
+      setLastSearchGeo(geoForRequest);
       setData(json);
     } catch (e) {
       setData(null);
+      setLastSearchGeo(null);
       setError(e instanceof Error ? e.message : "Search failed.");
     } finally {
       setLoading(false);
     }
-  }
+  }, [
+    centre.lat,
+    centre.lon,
+    customDistanceKm,
+    distanceIdx,
+    fieldWeight,
+    myDistanceM,
+    q,
+    raceTime,
+    radiusKm,
+    region,
+    surface,
+    terrain,
+  ]);
+
+  useEffect(() => {
+    void runSearch();
+    // Initial catalogue load only (Southampton hub, 65 km).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="page">
       <header className="hero">
-        <h1>Find a race that fits you — not just your calendar.</h1>
+        <h1>Hampshire &amp; South Coast — find a race and sign up fast.</h1>
         <p>
-          Search by <strong>place</strong>, then tune with a <strong> recent race time</strong> to see events
-          whose typical finishers look like <em>your</em> pace. Terrain and surface filters are early hooks
-          for richer course intelligence later on.
+          Search from a local hub, open <strong>Sign up</strong> or <strong>Past results</strong> on each card. Add a
+          recent race time only if you want pace vs field matching — leave it empty to browse by place and map.
         </p>
       </header>
 
       <section className="panel">
-        <h2>Smart search</h2>
-        <div className="form-grid">
+        <h2>Search</h2>
+        <div className="form-grid form-grid-primary">
           <label>
             Keywords
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. marathon, Vitality…" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. half, Portsmouth, 10k…" />
           </label>
           <label>
-            Region (optional)
-            <input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="e.g. Hampshire" />
-          </label>
-          <label>
-            Near (preset)
+            Near
             <select value={presetIdx} onChange={(e) => setPresetIdx(Number(e.target.value))}>
               {UK_PRESETS.map((p, i) => (
                 <option key={p.label} value={i}>
@@ -170,13 +264,21 @@ export default function App() {
             <input
               type="number"
               min={5}
-              max={500}
+              max={120}
               value={radiusKm}
               onChange={(e) => setRadiusKm(Number(e.target.value))}
             />
           </label>
+          <label>
+            Region filter (optional)
+            <input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="Hampshire" />
+          </label>
+        </div>
+        <details className="search-advanced">
+          <summary>Pace matching (optional)</summary>
+          <div className="form-grid">
           <label className="stack">
-            Your recent race
+            Recent race distance
             <select value={distanceIdx} onChange={(e) => setDistanceIdx(Number(e.target.value))}>
               {DISTANCE_PRESETS.map((d, i) => (
                 <option key={d.label} value={i}>
@@ -193,12 +295,12 @@ export default function App() {
               placeholder="Custom distance (km), optional override"
             />
           </label>
-          <label>
-            Time (hh:mm:ss or mm:ss)
-            <input value={raceTime} onChange={(e) => setRaceTime(e.target.value)} placeholder="48:30" />
+          <label className="stack">
+            Finish time
+            <input value={raceTime} onChange={(e) => setRaceTime(e.target.value)} placeholder="48:30 or leave blank" />
           </label>
           <label>
-            Terrain preference
+            Terrain
             <select
               value={terrain}
               onChange={(e) => setTerrain(e.target.value as typeof terrain)}
@@ -210,7 +312,7 @@ export default function App() {
             </select>
           </label>
           <label>
-            Surface preference
+            Surface
             <select
               value={surface}
               onChange={(e) => setSurface(e.target.value as typeof surface)}
@@ -232,56 +334,85 @@ export default function App() {
               value={fieldWeight}
               onChange={(e) => setFieldWeight(Number(e.target.value))}
             />
-            <span className="hint">
-              Field weight {Math.round(fieldWeight * 100)}% — raise this to prioritise matching typical finishers.
-            </span>
+            <span className="hint">Field weight {Math.round(fieldWeight * 100)}%</span>
           </label>
-        </div>
+          </div>
+        </details>
         <div className="row-actions">
           <button className="primary" type="button" onClick={() => void runSearch()} disabled={loading}>
             {loading ? "Searching…" : "Search races"}
           </button>
-          <span className="hint">API: GET /api/search (see FastAPI docs at /docs on the backend).</span>
         </div>
         {error ? <div className="error">{error}</div> : null}
       </section>
 
+      {loading && !data ? <p className="hint results-loading">Loading local races…</p> : null}
+
       {data ? (
         <section className="results">
-          <p className="hint">
-            {data.count} result{data.count === 1 ? "" : "s"}
+          <div className="results-toolbar">
+            <button
+              type="button"
+              className="map-trigger"
+              disabled={mapMarkers.length === 0}
+              onClick={() => setMapOpen(true)}
+            >
+              Show map
+            </button>
+            {mapMarkers.length === 0 ? (
+              <span className="hint">No races with map coordinates in this result set.</span>
+            ) : null}
+          </div>
+          {lastSearchGeo && (
+            <SearchMap
+              open={mapOpen}
+              onClose={() => setMapOpen(false)}
+              center={lastSearchGeo.center}
+              radiusKm={lastSearchGeo.radiusKm}
+              markers={mapMarkers}
+            />
+          )}
+          <p className="results-count">
+            <strong>{data.count}</strong> race{data.count === 1 ? "" : "s"} match
             {data.results.some((r) => r.user_equiv_5k_sec != null) ? (
               <>
                 {" "}
-                — your equivalent 5K is{" "}
+                · your equiv. 5K from that pace:{" "}
                 <strong>
-                  {formatMinSec(
-                    data.results.find((r) => r.user_equiv_5k_sec != null)?.user_equiv_5k_sec ?? null,
-                  )}
-                </strong>{" "}
-                from the pace you entered (Riegel-style mapping in core; swap for VDOT later without changing
-                the UI).
+                  {formatMinSec(data.results.find((r) => r.user_equiv_5k_sec != null)?.user_equiv_5k_sec ?? null)}
+                </strong>
               </>
             ) : null}
           </p>
           {data.results.map((row) => (
             <article key={row.race.id} className="card">
-              <header>
-                <h3>{row.race.title}</h3>
-                <span className="badge accent">score {row.composite_score.toFixed(2)}</span>
+              <header className="card-head">
+                <div>
+                  <h3>{row.race.title}</h3>
+                  <p className="card-sub">
+                    {formatRaceDate(row.race.start)}
+                    {" · "}
+                    {row.race.location_label ?? row.race.region ?? "—"}
+                    {row.distance_km != null ? ` · ~${row.distance_km.toFixed(0)} km` : ""}
+                  </p>
+                </div>
+                {formatDistanceLabel(row.race.course.distance_m) ? (
+                  <span className="badge distance-badge">{formatDistanceLabel(row.race.course.distance_m)}</span>
+                ) : null}
               </header>
-              <div className="meta">
-                <span>{new Date(row.race.start).toLocaleString()}</span>
-                <span>{row.race.location_label ?? row.race.region ?? "—"}</span>
-                {row.distance_km != null ? <span>~{row.distance_km} km away</span> : null}
-                <span className="badge">
-                  {row.race.course.terrain} · {row.race.course.surface}
-                  {row.race.course.elevation_gain_m != null
-                    ? ` · ~${row.race.course.elevation_gain_m} m climb`
-                    : ""}
-                </span>
-                {row.race.course.distance_m ? (
-                  <span className="badge">{(row.race.course.distance_m / 1000).toFixed(3)} km</span>
+              <div className="card-actions">
+                {row.race.sign_up_url ? (
+                  <a className="btn-signup" href={row.race.sign_up_url} target="_blank" rel="noopener noreferrer">
+                    Sign up
+                  </a>
+                ) : null}
+                {row.race.results_url ? (
+                  <a className="btn-results" href={row.race.results_url} target="_blank" rel="noopener noreferrer">
+                    Past results
+                  </a>
+                ) : null}
+                {!row.race.sign_up_url && !row.race.results_url ? (
+                  <span className="hint thin">No organiser links on file for this listing.</span>
                 ) : null}
               </div>
               {row.race.field_summary?.median_5k_sec != null ? (
@@ -302,18 +433,17 @@ export default function App() {
                   <span className="badge">{row.race.field_summary.provenance.replaceAll("_", " ")}</span>
                 </div>
               ) : (
-                <p className="hint">No field summary on this record — ingestion can attach one from results or entrants.</p>
+                <p className="hint thin">No field stats yet — add chip times via ingest when you have them.</p>
               )}
-              <ul className="reasons">
-                {row.reasons.map((r) => (
-                  <li key={r}>{r}</li>
-                ))}
-              </ul>
-              {row.race.sign_up_url ? (
-                <a href={row.race.sign_up_url} target="_blank" rel="noreferrer">
-                  Event link (demo)
-                </a>
-              ) : null}
+              <details className="match-reasons">
+                <summary>More detail</summary>
+                <ul>
+                  {row.reasons.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+                <p className="hint thin">Match score {row.composite_score.toFixed(2)}</p>
+              </details>
             </article>
           ))}
         </section>

@@ -1,0 +1,6 @@
+# Optional dependencies for `scripts/run_ingest.py` when using the `seed-ldjson` source
+# (structured HTML fetch + JSON-LD parsing). Same stack as `uk_running_events_crawl.py`.
+# Install: pip install -r scripts/requirements-ingest.txt
+# Core types: pip install -e packages/fmr_core
+requests>=2.28
+beautifulsoup4>=4.12

@@ -1,4 +1,27 @@
-from fmr_core.handicap import equivalent_5k_seconds
+import pytest
+from pydantic import ValidationError
+
+from fmr_core.handicap import equivalent_5k_seconds, validate_handicap_performance
+from fmr_core.models import SearchQuery
+
+
+def test_handicap_rejects_impossible_speed():
+    with pytest.raises(ValueError):
+        validate_handicap_performance(42195, 3600)  # ~51 min marathon — faster than physically modeled
+
+
+def test_handicap_rejects_slow_pace():
+    with pytest.raises(ValueError):
+        validate_handicap_performance(5000, 4200)  # ~14 min/km average
+
+
+def test_search_query_handicap_pairing():
+    SearchQuery()
+    SearchQuery(my_distance_m=10000, my_time_sec=3000)
+    with pytest.raises(ValidationError):
+        SearchQuery(my_distance_m=5000)
+    with pytest.raises(ValidationError):
+        SearchQuery(my_time_sec=2000)
 
 
 def test_equivalent_5k_monotonic():

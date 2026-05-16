@@ -1,0 +1,7 @@
+{
+  "urls": [],
+  "uk_only": false,
+  "delay_s": 1.0,
+  "user_agent": "find-my-race-ingest/1.0 (+contact: you@example.com; respect robots.txt)",
+  "_comment": "Add a few event or calendar detail page URLs that publish JSON-LD SportsEvent. Set FMR_ALLOW_NETWORK_INGEST=1 only on hosts you may crawl. Prefer ICS/API feeds when available."
+}

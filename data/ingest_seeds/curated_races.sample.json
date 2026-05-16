@@ -1,0 +1,38 @@
+{
+  "_readme": "Paste crawler or hand-normalised rows under \"races\". Then: python scripts/run_ingest.py ingest-sample --source curated --config data/ingest_seeds/curated_races.sample.json --out data/races/curated_import.json --merge",
+  "races": [
+    {
+      "external_key": "southampton-marathon-site",
+      "title": "Southampton Marathon",
+      "start": "2026-04-05T09:00:00",
+      "source_page_url": "https://www.southamptonmarathon.co.uk/",
+      "event_url": "https://www.southamptonmarathon.co.uk/",
+      "place_name": "Southampton",
+      "region": "Hampshire",
+      "country": "GB",
+      "course_distance_m": 42195
+    },
+    {
+      "external_key": "great-south-run",
+      "title": "Great South Run",
+      "start": "2026-10-18T10:00:00",
+      "source_page_url": "https://www.greatrun.org/events/great-south-run",
+      "event_url": "https://www.greatrun.org/events/great-south-run",
+      "place_name": "Portsmouth & Southsea",
+      "region": "Hampshire",
+      "country": "GB",
+      "course_distance_m": 16093
+    },
+    {
+      "external_key": "new-forest-marathon",
+      "title": "New Forest Marathon",
+      "start": "2026-09-13T09:30:00",
+      "source_page_url": "https://www.newforestmarathon.co.uk/",
+      "event_url": "https://www.newforestmarathon.co.uk/",
+      "place_name": "Brockenhurst",
+      "region": "Hampshire",
+      "country": "GB",
+      "course_distance_m": 42195
+    }
+  ]
+}

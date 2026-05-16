@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 from fmr_core.handicap import equivalent_5k_seconds, haversine_km
 from fmr_core.models import Race, SearchQuery
@@ -14,6 +15,13 @@ class RaceMatch:
     user_equiv_5k_sec: float | None
     field_delta_sec: float | None
     reasons: list[str]
+
+
+# Field match prefers you ~slightly slower than median finisher on equivalent 5K (mid-pack realism).
+TARGET_FIELD_Z = -0.18
+SIGMA_MIN = 0.74
+SIGMA_MAX = 1.28
+SIGMA_BASE = 0.92
 
 
 def _text_haystack(r: Race) -> str:
@@ -68,15 +76,42 @@ def _field_z_score(user_eq: float, race: Race) -> float | None:
     return (user_eq - fs.median_5k_sec) / spread
 
 
+def _field_sigma(race: Race) -> float:
+    """Wider spread in field summary → more uncertainty → gentler z penalty."""
+    fs = race.field_summary
+    if fs is None or fs.median_5k_sec is None:
+        return SIGMA_BASE
+    spread = None
+    if fs.p25_5k_sec is not None and fs.p75_5k_sec is not None:
+        iqr = max(fs.p75_5k_sec - fs.p25_5k_sec, 1e-6)
+        spread = iqr / 1.349
+    if spread is None or spread <= 0:
+        return SIGMA_BASE
+    med = max(abs(fs.median_5k_sec), 400.0)
+    norm = spread / max(med * 0.08, 35.0)
+    return max(SIGMA_MIN, min(SIGMA_MAX, SIGMA_BASE * (0.84 + 0.28 * min(norm, 2.2))))
+
+
+def _field_gaussian_score(z: float, sigma: float) -> float:
+    return math.exp(-((z - TARGET_FIELD_Z) ** 2) / (2.0 * sigma * sigma))
+
+
+def _distance_alignment_factor(race: Race, q: SearchQuery) -> float:
+    """Slight preference for events whose stated distance is close to the performance you entered."""
+    if not q.my_distance_m or not race.course.distance_m:
+        return 1.0
+    a, b = float(q.my_distance_m), float(race.course.distance_m)
+    ratio = min(a, b) / max(a, b)
+    return 0.78 + 0.22 * math.sqrt(ratio)
+
+
 def scored_matches(races: list[Race], q: SearchQuery) -> list[RaceMatch]:
     """
     Score races for the UI. Higher composite_score is better.
 
     - Geography: events inside radius score ~1 at center, decay outside (or neutral if no coords).
-    - Field: prefer being slightly slower than median (negative z) as "competitive mid-pack";
-      heavy penalty if far from field (either direction).
-
-    Tune weights via SearchQuery.field_weight vs (1-field_weight) for geo emphasis.
+    - Field: Gaussian on z-score vs typical finisher; peak slightly slower than median; sigma widens
+      when field quartiles are noisy. Small boost when event distance matches your reference distance.
     """
     user_eq: float | None
     try:
@@ -108,22 +143,26 @@ def scored_matches(races: list[Race], q: SearchQuery) -> list[RaceMatch]:
             geo_score = max(0.0, 1.0 - (dist_km / max(q.radius_km, 1.0)))
             reasons.append(f"Within ~{dist_km:.1f} km of search centre.")
 
-        # Field component — prefer modest negative z ("a bit slower than median")
+        # Field component — smooth preference around target z; align with event distance
         field_score = 0.5
         field_delta: float | None = None
         if user_eq is not None and r.field_summary and r.field_summary.median_5k_sec is not None:
             field_delta = user_eq - r.field_summary.median_5k_sec
             z = _field_z_score(user_eq, r)
             assert z is not None
-            # Peak around z = -0.25 (user slightly slower than median)
-            penalty = abs(z + 0.25)
-            field_score = max(0.0, 1.0 - penalty / 3.5)
-            if z < -1.5:
+            sigma = _field_sigma(r)
+            field_score = _field_gaussian_score(z, sigma)
+            field_score = min(1.0, field_score * _distance_alignment_factor(r, q))
+            if z < -2.0:
+                reasons.append("You look much faster than typical finishers — expect a small front pack.")
+            elif z < -0.9:
                 reasons.append("You look faster than typical finishers — expect to be up front.")
-            elif z > 1.5:
+            elif z > 2.0:
+                reasons.append("Typical finishers appear much faster — ambitious target or development race.")
+            elif z > 0.9:
                 reasons.append("Typical finishers appear faster — good stretch target.")
             else:
-                reasons.append("Likely comparable to typical finishers (based on median field).")
+                reasons.append("Likely comparable to typical finishers (handicap vs median field).")
 
         fw = q.field_weight
         composite = fw * field_score + (1.0 - fw) * geo_score

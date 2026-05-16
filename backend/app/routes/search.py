@@ -4,7 +4,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
 
-from app.services.races import load_races
+from app.services.races import load_races_from_source
 from fmr_core.models import SearchQuery
 from fmr_core.search import scored_matches
 
@@ -26,6 +26,7 @@ def _serialize_match(m: Any) -> dict[str, Any]:
             "course": r.course.model_dump(),
             "field_summary": r.field_summary.model_dump() if r.field_summary else None,
             "sign_up_url": r.sign_up_url,
+            "results_url": r.results_url,
             "metadata": r.metadata,
         },
         "composite_score": round(m.composite_score, 4),
@@ -38,8 +39,8 @@ def _serialize_match(m: Any) -> dict[str, Any]:
 
 @router.get("/search")
 def search(request: Request, q: Annotated[SearchQuery, Depends()]) -> dict[str, Any]:
-    path = request.app.state.races_path
-    races = load_races(path)
+    src = request.app.state.races_source
+    races = load_races_from_source(src)
     matches = scored_matches(races, q)
     return {
         "query": q.model_dump(),

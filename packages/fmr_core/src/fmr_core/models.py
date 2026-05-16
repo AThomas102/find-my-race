@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from fmr_core.handicap import validate_handicap_performance
 
 Provenance = Literal["past_results", "entrants", "estimated", "unknown"]
 
@@ -50,6 +52,10 @@ class Race(BaseModel):
     course: CourseProfile = Field(default_factory=CourseProfile)
     field_summary: FieldSummary | None = None
     sign_up_url: str | None = None
+    results_url: str | None = Field(
+        default=None,
+        description="Official archive / results finder URL (distinct from signup when possible).",
+    )
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("start", mode="before")
@@ -62,6 +68,16 @@ class Race(BaseModel):
                 return date.fromisoformat(v[:10])
         return v
 
+    @model_validator(mode="after")
+    def lift_results_url_from_metadata(self) -> "Race":
+        if self.results_url:
+            return self
+        if isinstance(self.metadata, dict):
+            ru = self.metadata.get("results_url")
+            if isinstance(ru, str) and ru.strip():
+                return self.model_copy(update={"results_url": ru.strip()})
+        return self
+
 
 class SearchQuery(BaseModel):
     """User intent for /api/search; keep flat for simple query strings."""
@@ -71,13 +87,24 @@ class SearchQuery(BaseModel):
     center_lat: float | None = None
     center_lon: float | None = None
     radius_km: float = Field(default=80.0, ge=1, le=800)
-    max_results: int = Field(default=25, ge=1, le=100)
+    max_results: int = Field(default=30, ge=1, le=120)
 
     my_distance_m: int | None = Field(default=None, description="Recent race distance in metres")
-    my_time_sec: float | None = Field(default=None, ge=0, description="Recent race time in seconds")
+    my_time_sec: float | None = Field(default=None, description="Recent race time in seconds")
 
     prefer_terrain: Literal["any", "flat", "undulating", "hilly"] = "any"
     prefer_surface: Literal["any", "road", "trail", "track", "mixed"] = "any"
 
     # How much to weight field match vs geography (0..1). 0.5 = equal.
     field_weight: float = Field(default=0.55, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def handicap_inputs_consistent(self) -> SearchQuery:
+        d, t = self.my_distance_m, self.my_time_sec
+        if (d is None) != (t is None):
+            raise ValueError(
+                "Provide both my_distance_m and my_time_sec together, or omit both for geography-only search."
+            )
+        if d is not None and t is not None:
+            validate_handicap_performance(int(d), float(t))
+        return self
